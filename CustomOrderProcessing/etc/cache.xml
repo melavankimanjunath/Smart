@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Cache/etc/cache.xsd">
+    <type name="status_log_cache" translate="label,description" instance="Vendor\CustomOrderProcessing\Model\Cache\StatusLogCache">
+        <label>Status Log Cache</label>
+        <description>Cache for order status log data</description>
+    </type>
+</config>

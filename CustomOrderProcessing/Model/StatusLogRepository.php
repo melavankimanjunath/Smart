@@ -6,6 +6,7 @@ use Vendor\CustomOrderProcessing\Api\Data\StatusLogInterface;
 use Vendor\CustomOrderProcessing\Model\ResourceModel\StatusLog as StatusLogResource;
 use Vendor\CustomOrderProcessing\Model\StatusLogFactory;
 use Vendor\CustomOrderProcessing\Model\ResourceModel\StatusLog\CollectionFactory;
+use Vendor\CustomOrderProcessing\Model\Cache\StatusLogCache;
 use Magento\Framework\Api\SearchCriteriaBuilder;
 use Magento\Framework\Api\SearchCriteria\CollectionProcessorInterface;
 use Magento\Framework\Api\SearchCriteriaInterface;
@@ -14,6 +15,7 @@ use Magento\Framework\Api\SearchResultsInterfaceFactory;
 use Magento\Framework\Exception\CouldNotDeleteException;
 use Magento\Framework\Exception\CouldNotSaveException;
 use Magento\Framework\Exception\NoSuchEntityException;
+use Magento\Framework\Serialize\SerializerInterface;
 
 class StatusLogRepository implements StatusLogRepositoryInterface
 {
@@ -46,6 +48,16 @@ class StatusLogRepository implements StatusLogRepositoryInterface
      * @var CollectionProcessorInterface
      */
     private $collectionProcessor;
+    
+    /**
+     * @var StatusLogCache
+     */
+    private $cache;
+    
+    /**
+     * @var SerializerInterface
+     */
+    private $serializer;
 
     /**
      * @param StatusLogResource $resource
@@ -54,6 +66,8 @@ class StatusLogRepository implements StatusLogRepositoryInterface
      * @param SearchCriteriaBuilder $searchCriteriaBuilder
      * @param SearchResultsInterfaceFactory $searchResultsFactory
      * @param CollectionProcessorInterface $collectionProcessor
+     * @param StatusLogCache $cache
+     * @param SerializerInterface $serializer
      */
     public function __construct(
         StatusLogResource $resource,
@@ -61,7 +75,9 @@ class StatusLogRepository implements StatusLogRepositoryInterface
         CollectionFactory $collectionFactory,
         SearchCriteriaBuilder $searchCriteriaBuilder,
         SearchResultsInterfaceFactory $searchResultsFactory,
-        CollectionProcessorInterface $collectionProcessor
+        CollectionProcessorInterface $collectionProcessor,
+        StatusLogCache $cache,
+        SerializerInterface $serializer
     ) {
         $this->resource = $resource;
         $this->statusLogFactory = $statusLogFactory;
@@ -69,6 +85,8 @@ class StatusLogRepository implements StatusLogRepositoryInterface
         $this->searchCriteriaBuilder = $searchCriteriaBuilder;
         $this->searchResultsFactory = $searchResultsFactory;
         $this->collectionProcessor = $collectionProcessor;
+        $this->cache = $cache;
+        $this->serializer = $serializer;
     }
 
     /**
@@ -78,6 +96,11 @@ class StatusLogRepository implements StatusLogRepositoryInterface
     {
         try {
             $this->resource->save($statusLog);
+            // Invalidate cache for this order
+            $this->cache->clean(\Zend_Cache::CLEANING_MODE_MATCHING_TAG, [
+                'order_id_' . $statusLog->getOrderId(),
+                'increment_id_' . $statusLog->getIncrementId()
+            ]);
         } catch (\Exception $exception) {
             throw new CouldNotSaveException(__(
                 'Could not save the status log: %1',
@@ -92,11 +115,35 @@ class StatusLogRepository implements StatusLogRepositoryInterface
      */
     public function getById($id)
     {
+        $cacheKey = 'status_log_id_' . $id;
+        $cachedData = $this->cache->load($cacheKey);
+        
+        if ($cachedData) {
+            $statusLogData = $this->serializer->unserialize($cachedData);
+            $statusLog = $this->statusLogFactory->create();
+            $statusLog->setData($statusLogData);
+            return $statusLog;
+        }
+        
         $statusLog = $this->statusLogFactory->create();
         $this->resource->load($statusLog, $id);
+        
         if (!$statusLog->getId()) {
             throw new NoSuchEntityException(__('Status log with id "%1" does not exist.', $id));
         }
+        
+        // Cache the result
+        $this->cache->save(
+            $this->serializer->serialize($statusLog->getData()),
+            $cacheKey,
+            [
+                StatusLogCache::CACHE_TAG,
+                'order_id_' . $statusLog->getOrderId(),
+                'increment_id_' . $statusLog->getIncrementId()
+            ],
+            3600 // Cache for 1 hour
+        );
+        
         return $statusLog;
     }
 
@@ -105,11 +152,28 @@ class StatusLogRepository implements StatusLogRepositoryInterface
      */
     public function getByOrderId($orderId)
     {
+        $cacheKey = 'status_log_order_id_' . $orderId;
+        $cachedData = $this->cache->load($cacheKey);
+        
+        if ($cachedData) {
+            return $this->serializer->unserialize($cachedData);
+        }
+        
         $searchCriteria = $this->searchCriteriaBuilder
             ->addFilter('order_id', $orderId)
             ->create();
         
-        return $this->getList($searchCriteria);
+        $result = $this->getList($searchCriteria);
+        
+        // Cache the result
+        $this->cache->save(
+            $this->serializer->serialize($result),
+            $cacheKey,
+            [StatusLogCache::CACHE_TAG, 'order_id_' . $orderId],
+            3600 // Cache for 1 hour
+        );
+        
+        return $result;
     }
 
     /**
@@ -117,11 +181,28 @@ class StatusLogRepository implements StatusLogRepositoryInterface
      */
     public function getByIncrementId($incrementId)
     {
+        $cacheKey = 'status_log_increment_id_' . $incrementId;
+        $cachedData = $this->cache->load($cacheKey);
+        
+        if ($cachedData) {
+            return $this->serializer->unserialize($cachedData);
+        }
+        
         $searchCriteria = $this->searchCriteriaBuilder
             ->addFilter('increment_id', $incrementId)
             ->create();
         
-        return $this->getList($searchCriteria);
+        $result = $this->getList($searchCriteria);
+        
+        // Cache the result
+        $this->cache->save(
+            $this->serializer->serialize($result),
+            $cacheKey,
+            [StatusLogCache::CACHE_TAG, 'increment_id_' . $incrementId],
+            3600 // Cache for 1 hour
+        );
+        
+        return $result;
     }
 
     /**

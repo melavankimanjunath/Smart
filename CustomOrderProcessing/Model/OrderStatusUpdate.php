@@ -3,11 +3,13 @@ namespace Vendor\CustomOrderProcessing\Model;
 
 use Vendor\CustomOrderProcessing\Api\OrderStatusUpdateInterface;
 use Vendor\CustomOrderProcessing\Api\Data\StatusUpdateInterface;
+use Vendor\CustomOrderProcessing\Model\RateLimiter;
 use Magento\Sales\Api\OrderRepositoryInterface;
 use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Sales\Model\Order;
 use Magento\Framework\Api\SearchCriteriaBuilder;
+use Magento\Framework\App\RequestInterface;
 
 class OrderStatusUpdate implements OrderStatusUpdateInterface
 {
@@ -20,17 +22,33 @@ class OrderStatusUpdate implements OrderStatusUpdateInterface
      * @var SearchCriteriaBuilder
      */
     private $searchCriteriaBuilder;
+    
+    /**
+     * @var RateLimiter
+     */
+    private $rateLimiter;
+    
+    /**
+     * @var RequestInterface
+     */
+    private $request;
 
     /**
      * @param OrderRepositoryInterface $orderRepository
      * @param SearchCriteriaBuilder $searchCriteriaBuilder
+     * @param RateLimiter $rateLimiter
+     * @param RequestInterface $request
      */
     public function __construct(
         OrderRepositoryInterface $orderRepository,
-        SearchCriteriaBuilder $searchCriteriaBuilder
+        SearchCriteriaBuilder $searchCriteriaBuilder,
+        RateLimiter $rateLimiter,
+        RequestInterface $request
     ) {
         $this->orderRepository = $orderRepository;
         $this->searchCriteriaBuilder = $searchCriteriaBuilder;
+        $this->rateLimiter = $rateLimiter;
+        $this->request = $request;
     }
 
     /**
@@ -38,11 +56,12 @@ class OrderStatusUpdate implements OrderStatusUpdateInterface
      */
     public function updateOrderStatus(StatusUpdateInterface $statusUpdate)
     {
+        // Apply rate limiting based on client IP
+        $clientIp = $this->request->getClientIp();
+        $this->rateLimiter->isAllowed('order_status_update_' . $clientIp);
+        
         $incrementId = $statusUpdate->getIncrementId();
         $newStatus = $statusUpdate->getNewStatus();
-
-        // $incrementId = "0000000001";
-        // $newStatus = "processing";
 
         if (empty($incrementId) || empty($newStatus)) {
             throw new LocalizedException(__('Increment ID and new status are required.'));
@@ -77,6 +96,7 @@ class OrderStatusUpdate implements OrderStatusUpdateInterface
         } elseif ($newStatus === Order::STATE_CANCELED) {
             $order->setState(Order::STATE_CANCELED);
         }
+        
         // Save the order
         $this->orderRepository->save($order);
         

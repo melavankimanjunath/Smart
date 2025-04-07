@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Acl/etc/acl.xsd">
+    <acl>
+        <resources>
+            <resource id="Magento_Backend::admin">
+                <resource id="Magento_Sales::sales">
+                    <resource id="Magento_Sales::sales_operation">
+                        <resource id="Vendor_CustomOrderProcessing::status_logs" title="Order Status Logs" translate="title" sortOrder="50" />
+                    </resource>
+                </resource>
+            </resource>
+        </resources>
+    </acl>
+</config>
